@@ -54,4 +54,14 @@ public class LoginControllerAsync {
 
     }
 
+    //IMPLEMENTANDO REGISTRO Y CIERRE DE SESION
+    @PostMapping("/cerrarSesion")
+    public Mono<Void> cerrarSesion(@RequestBody LogoutRequestDTO logoutRequestDTO) {
+        return webClientAutenticacion.post()
+                .uri("/logout")
+                .body(Mono.just(logoutRequestDTO), LogoutRequestDTO.class)
+                .retrieve()
+                .bodyToMono(Void.class);
+    }
+
 }
