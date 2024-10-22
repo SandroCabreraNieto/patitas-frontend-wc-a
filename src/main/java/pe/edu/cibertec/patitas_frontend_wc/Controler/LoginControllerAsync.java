@@ -1,8 +1,10 @@
 package pe.edu.cibertec.patitas_frontend_wc.Controler;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.reactive.function.client.WebClient;
+import pe.edu.cibertec.patitas_frontend_wc.client.AutenticacionClient;
 import pe.edu.cibertec.patitas_frontend_wc.dto.LoginRequestDTO;
 import pe.edu.cibertec.patitas_frontend_wc.dto.LoginResponseDTO;
 import reactor.core.publisher.Mono;
@@ -13,55 +15,45 @@ import reactor.core.publisher.Mono;
 public class LoginControllerAsync {
 
     @Autowired
-    WebClient webClientAutenticacion;
+    private AutenticacionClient autenticacionClient;
 
-    @PostMapping("/autenticar-async")
+    @PostMapping("/autenticar-async-cloud")
     public Mono<LoginResponseDTO> autenticar(@RequestBody LoginRequestDTO loginRequestDTO) {
-
-        // validar campos de entrada
-        if(loginRequestDTO.tipoDocumento() == null || loginRequestDTO.tipoDocumento().trim().length() == 0 ||
-                loginRequestDTO.numeroDocumento() == null || loginRequestDTO.numeroDocumento().trim().length() == 0 ||
-                loginRequestDTO.password() == null || loginRequestDTO.password().trim().length() == 0) {
+        // Validar campos de entrada
+        if (loginRequestDTO.tipoDocumento() == null || loginRequestDTO.tipoDocumento().trim().isEmpty() ||
+                loginRequestDTO.numeroDocumento() == null || loginRequestDTO.numeroDocumento().trim().isEmpty() ||
+                loginRequestDTO.password() == null || loginRequestDTO.password().trim().isEmpty()) {
 
             return Mono.just(new LoginResponseDTO("01", "Error: Debe completar correctamente sus credenciales", "", ""));
-
         }
 
-        try {
-
-            // consumir servicio de autenticación (Del Backend)
-            return webClientAutenticacion.post()
-                    .uri("/login")
-                    .body(Mono.just(loginRequestDTO), LoginRequestDTO.class)
-                    .retrieve()
-                    .bodyToMono(LoginResponseDTO.class)
-                    .flatMap(response -> {
-
-                        if(response.codigo().equals("00")) {
+        // Consumir servicio de autenticación
+        return Mono.fromCallable(() -> autenticacionClient.login(loginRequestDTO))
+                .flatMap(responseEntity -> {
+                    if (responseEntity.getStatusCode().is2xxSuccessful() && responseEntity.getBody() != null) {
+                        LoginResponseDTO response = responseEntity.getBody();
+                        if ("00".equals(response.codigo())) {
                             return Mono.just(new LoginResponseDTO("00", "", response.nombreUsuario(), ""));
                         } else {
                             return Mono.just(new LoginResponseDTO("02", "Error: Autenticación fallida", "", ""));
                         }
-
-                    });
-
-        } catch(Exception e) {
-
-            System.out.println(e.getMessage());
-            return Mono.just(new LoginResponseDTO("99", "Error: Ocurrió un problema en la autenticación", "", ""));
-
-        }
-
+                    } else {
+                        return Mono.just(new LoginResponseDTO("02", "Error: Autenticación fallida", "", ""));
+                    }
+                })
+                .onErrorReturn(new LoginResponseDTO("99", "Error: Ocurrió un problema en la autenticación", "", ""));
     }
 
-    //IMPLEMENTANDO REGISTRO Y CIERRE DE SESION
+    // Implementando cierre de sesión
     @PostMapping("/cerrarSesion")
-    public Mono<Void> cerrarSesion(@RequestBody LogoutRequestDTO logoutRequestDTO) {
-        return webClientAutenticacion.post()
-                .uri("/logout")
-                .body(Mono.just(logoutRequestDTO), LogoutRequestDTO.class)
-                .retrieve()
-                .bodyToMono(Void.class);
+    public Mono<ResponseEntity<Void>> cerrarSesion(@RequestBody LogoutRequestDTO logoutRequestDTO) {
+        return Mono.fromCallable(() -> {
+            ResponseEntity<Void> responseEntity = autenticacionClient.logout(logoutRequestDTO);
+            if (responseEntity.getStatusCode().is2xxSuccessful()) {
+                return ResponseEntity.ok().build(); // Retorna un 200 OK
+            } else {
+                return ResponseEntity.status(responseEntity.getStatusCode()).build(); // Retorna el código de estado original
+            }
+        }).then(Mono.just(ResponseEntity.ok().build())); // Indica que el Mono se completa con un 200 OK
     }
-
 }
